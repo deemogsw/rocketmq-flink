@@ -17,11 +17,38 @@
 
 package org.apache.rocketmq.flink.legacy.common.config;
 
+import org.apache.flink.configuration.DescribedEnum;
+import org.apache.flink.configuration.description.InlineElement;
+
+import static org.apache.flink.configuration.description.TextElement.text;
+
 /** RocketMQ startup mode. */
-public enum StartupMode {
-    EARLIEST,
-    LATEST,
-    GROUP_OFFSETS,
-    TIMESTAMP,
-    SPECIFIC_OFFSETS
+public enum StartupMode implements DescribedEnum {
+    EARLIEST("earliest-offset", text("Start from the earliest offset possible.")),
+    LATEST("latest-offset", text("Start from the latest offset.")),
+    GROUP_OFFSETS(
+            "group-offsets",
+            text("Start from committed offsets in brokers of a specific consumer group.")),
+    TIMESTAMP("timestamp", text("Start from user-supplied timestamp for each message queue.")),
+    SPECIFIC_OFFSETS(
+            "specific-offsets",
+            text("Start from user-supplied specific offsets for each message queue."));
+
+    private final String value;
+    private final InlineElement description;
+
+    StartupMode(String value, InlineElement description) {
+        this.value = value;
+        this.description = description;
+    }
+
+    @Override
+    public InlineElement getDescription() {
+        return description;
+    }
+
+    @Override
+    public String toString() {
+        return value;
+    }
 }

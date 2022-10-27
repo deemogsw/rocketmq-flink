@@ -71,9 +71,6 @@ public class RocketMQPartitionSplitReader<T>
     private final String topic;
     private final String tag;
     private final String sql;
-    private final long stopInMs;
-    private final long startTime;
-    private final long startOffset;
 
     private final String accessKey;
     private final String secretKey;
@@ -97,18 +94,12 @@ public class RocketMQPartitionSplitReader<T>
             String secretKey,
             String tag,
             String sql,
-            long stopInMs,
-            long startTime,
-            long startOffset,
             RocketMQDeserializationSchema<T> deserializationSchema) {
         this.topic = topic;
         this.tag = tag;
         this.sql = sql;
         this.accessKey = accessKey;
         this.secretKey = secretKey;
-        this.stopInMs = stopInMs;
-        this.startTime = startTime;
-        this.startOffset = startOffset;
         this.deserializationSchema = deserializationSchema;
         this.startingOffsets = new HashMap<>();
         this.stoppingTimestamps = new HashMap<>();
@@ -140,23 +131,6 @@ public class RocketMQPartitionSplitReader<T>
                             messageQueue.getQueueId());
             if (startingOffsets.containsKey(topicPartition)) {
                 long messageOffset = startingOffsets.get(topicPartition);
-                if (messageOffset == 0) {
-                    try {
-                        messageOffset =
-                                startTime > 0
-                                        ? consumer.searchOffset(messageQueue, startTime)
-                                        : startOffset;
-                    } catch (MQClientException e) {
-                        LOG.warn(
-                                String.format(
-                                        "Search RocketMQ message offset of topic[%s] broker[%s] queue[%d] exception.",
-                                        messageQueue.getTopic(),
-                                        messageQueue.getBrokerName(),
-                                        messageQueue.getQueueId()),
-                                e);
-                    }
-                    messageOffset = messageOffset > -1 ? messageOffset : 0;
-                }
                 PullResult pullResult = null;
                 try {
                     if (wakeup) {
@@ -217,6 +191,7 @@ public class RocketMQPartitionSplitReader<T>
                     for (MessageExt messageExt : pullResult.getMsgFoundList()) {
                         long stoppingTimestamp = getStoppingTimestamp(topicPartition);
                         long storeTimestamp = messageExt.getStoreTimestamp();
+                        // todo 当前offset需要-1 否则检查点少一条数据
                         if (storeTimestamp > stoppingTimestamp) {
                             finishSplitAtRecord(
                                     topicPartition,
@@ -308,7 +283,16 @@ public class RocketMQPartitionSplitReader<T>
     }
 
     private long getStoppingTimestamp(Tuple3<String, String, Integer> topicPartition) {
-        return stoppingTimestamps.getOrDefault(topicPartition, stopInMs);
+        return stoppingTimestamps.getOrDefault(topicPartition, Long.MAX_VALUE);
+    }
+
+    public void notifyCheckpointComplete(Map<MessageQueue, Long> committedOffsets)
+            throws MQClientException {
+        for (Map.Entry<MessageQueue, Long> entry : committedOffsets.entrySet()) {
+            consumer.updateConsumeOffset(entry.getKey(), entry.getValue());
+            consumer.getOffsetStore().persist(consumer.queueWithNamespace(entry.getKey()));
+            LOG.info("Offset commit success.{},offset:{}", entry.getKey(), entry.getValue());
+        }
     }
 
     // --------------- private helper method ----------------------
